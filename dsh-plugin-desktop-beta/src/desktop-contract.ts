@@ -1,4 +1,6 @@
 /** General renderer state omits credentials; browser login links use a separate native operation. */
+import type { DesktopFailureStage } from '../../dsh-plugin-desktop/src/recovery-copy.ts'
+import type { DesktopHostExit } from './exit-code.ts'
 import type { Features, OnboardingChoices } from './profiles.ts'
 import type { DesktopLanHttpsRuntimeSnapshot } from './lan-https-runtime.ts'
 import type { DesktopPermissions } from './permissions.ts'
@@ -61,12 +63,18 @@ export interface DesktopState {
   phase: 'starting' | 'ready' | 'error' | 'recovery'
   busy: boolean
   failure: string
+  /** Where `failure` stopped the Desktop: a startup stage, or the part that failed while running. */
+  failureStage?: DesktopFailureStage
+  /** How the Host ended, when its exit is the failure. */
+  failureExit?: DesktopHostExit
   safeMode: boolean
   /** The selected Profile needs Desktop setup in the running official client. */
   onboarding?: boolean
   /** Initial saved choice for setup; live state belongs to pluginManager. */
   onboardingComputerUse?: boolean
   home: string
+  /** How `home` was chosen: in the app (wins), by `DSH_DESKTOP_NEXT_HOME`, or by default. */
+  dataDirectory?: { source: 'desktop' | 'environment' | 'default'; environmentHome: string | null }
   platform: string
   version: string
   updates?: import('./update-state.ts').NextUpdateState
@@ -105,6 +113,7 @@ export type DesktopCommand =
   | { type: 'preferences'; preferences: DesktopPreferences }
   | { type: 'controls'; page?: 'general' | 'profiles' | 'create-profile' | 'tools' | 'recovery' | 'permissions' }
   | { type: 'restart-app' | 'restart-recovery' | 'restart-onboarding' | 'close-controls' }
+  | { type: 'change-data-directory' | 'backup-data-directory' }
   | { type: 'restart' | 'recover' | 'safe-mode' | 'normal-mode' | 'rollback' | 'repair-global'
     | 'reload' | 'devtools' | 'terminal' | 'open-home' | 'open-profile' | 'open-logs' | 'open-backups'
     | 'diagnostics' | 'open-browser' | 'open-lan' | 'copy-browser' | 'copy-lan' | 'export-ca' | 'quit' }

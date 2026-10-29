@@ -1,26 +1,28 @@
 /** Alpha.2 shared Web profile runner, hosted by an Electron Node-mode child. */
 import { auditHostPlugins, configureHostLogging, hostLog, hostOperation } from './logging.ts'
-import { basename, delimiter, join, resolve } from 'node:path'
+import { basename, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { inspect } from 'node:util'
 import { loadLayeredEnv } from '@deepseek-ai/dsh-app-boot'
 import { runProfile } from '@deepseek-ai/dsh/profile-boot'
 import type {} from '@deepseek-ai/dsh-client-connection'
 import type {} from '@deepseek-ai/dsh-host-webserver'
+import { webIndexInjections } from '../upstream-family.ts'
 import { loadNextProfile, NEXT_PACKAGE, readNextProfilePatches } from '../profiles.ts'
-import { bundledPnpmEntry } from '../extensions.ts'
-import { withDesktopPnpmPolicy } from '../pnpm-policy.ts'
+import { bundledPnpmInvocation } from '../bundled-pnpm.ts'
 import { configureNextBrowserAccess } from '../desktop-browser-access.ts'
 import { parsePreferences } from '../desktop-preferences.ts'
 import { atomicJson } from '../private-files.ts'
 import type NextWebServer from '../webserver.ts'
-import { disableAsarArchiveView, unpackedPath } from '../asar-archive-policy.ts'
+import { disableAsarArchiveView } from '../asar-archive-policy.ts'
 import { maskSecrets } from '../mask-secrets.ts'
+import { MEMORY_SAMPLE_INTERVAL_MS, hostMemoryUsage } from '../memory-monitor.ts'
 import { parseSystemProxyProbe, SYSTEM_PROXY_ENV, withSystemProxy } from '../system-proxy.ts'
 import { watchPlatformLogin, type PlatformLoginAccount } from './platform-login.ts'
 import { installAgentPresetResolution } from './agent-preset.ts'
 import { installCuaDriverResolution } from './cua-driver.ts'
 import { installOfficeEngineResolution } from './office-engine.ts'
+import { installSharpWasmResolution } from './sharp-wasm.ts'
 import { installSkillBadgeResolution } from './skill-badge.ts'
 import * as desktopOffice from './office.ts'
 import { resolveOfficeConfig } from './office.ts'
@@ -41,6 +43,8 @@ export async function main(): Promise<void> {
   installCuaDriverResolution(runtimeDir)
   // The badge skill tells the model to take its PNG from the directory it announces, which shells and the Host's filesystem service cannot read inside the archive.
   installSkillBadgeResolution(runtimeDir)
+  // Linux sharp must not load its native backends beside the GLib Electron links; it runs its WebAssembly build instead.
+  installSharpWasmResolution(runtimeDir)
   const preferences = parsePreferences(JSON.parse(process.env.DSH_NEXT_PREFERENCES ?? '{}'))
   configureHostLogging(preferences)
   hostLog({ source: 'host', event: 'process.start', fields: { profile: basename(projectDir), node: process.version } })
@@ -68,24 +72,24 @@ export async function main(): Promise<void> {
       readPatches: profilePatches => readNextProfilePatches(projectDir, home,
         [join(runtimeDir, 'host.cordis.patch.yml'), join(projectDir, 'desktop-next.cordis.patch.json'), runtimePatch], profilePatches) },
     patchFiles: [join(runtimeDir, 'host.cordis.patch.yml'), join(projectDir, 'desktop-next.cordis.patch.json'), runtimePatch], args: ['--no-open', '--port', String(preferences.port)],
-    packageManager: {
-      command: process.execPath, args: ['--expose-internals', bundledPnpmEntry(NEXT_PACKAGE), ...withDesktopPnpmPolicy([])],
-      env: {
-        DSH_DESKTOP_NODE_EXECUTABLE: process.execPath,
-        ...(process.versions.electron ? { ELECTRON_RUN_AS_NODE: '1' } : {}),
-        // Package scripts execute the shims through the shell, which cannot enter app.asar.
-        PATH: `${unpackedPath(join(runtimeDir, 'scripts', 'node-bin'))}${delimiter}${process.env.PATH ?? ''}`,
-      },
-    },
+    packageManager: bundledPnpmInvocation(runtimeDir),
   })
   const send = (value: object): Promise<void> => new Promise((resolveSend, reject) => {
     if (!process.connected || !process.send) return resolveSend()
     process.send(value, error => error ? reject(error) : resolveSend())
   })
+  // Memory evidence for the Desktop's incident snapshots. Pushed rather than requested, so a Host too
+  // busy or too short of memory to answer still leaves its last reading behind (#1511).
+  const memory = setInterval(() => {
+    try { void send({ type: 'memory', ...hostMemoryUsage(process.memoryUsage()) }).catch(() => {}) }
+    catch { /* A failed reading drops only this sample. */ }
+  }, MEMORY_SAMPLE_INTERVAL_MS)
+  memory.unref()
   let stopping: Promise<void> | undefined
   const accountWatch = new AbortController()
   const stop = (): Promise<void> => stopping ??= (async () => {
     const end = hostOperation('host', 'shutdown')
+    clearInterval(memory)
     accountWatch.abort()
     const running = await application.catch(() => undefined)
     try { await running?.shutdown.shutdown(0); end() } catch (error) { end(error); throw error }
@@ -110,7 +114,7 @@ export async function main(): Promise<void> {
       if (!Number.isSafeInteger(query.requestId)) return
       void application.then(async ({ ctx }) => {
         if (stopping) throw new Error('Next Host is stopping')
-        await send({ type: 'injections', requestId: query.requestId, injections: ctx.webServer.collectIndexInjections() })
+        await send({ type: 'injections', requestId: query.requestId, injections: webIndexInjections(ctx) })
       }).catch(async () => { await send({ type: 'injections', requestId: query.requestId, error: 'Could not collect Web boot injections' }) }).catch(fatal)
       return
     }
@@ -135,7 +139,7 @@ export async function main(): Promise<void> {
   }
   hostLog({ source: 'host', event: 'process.ready' })
   await send({ type: 'ready', url: ctx.connection.authenticatedUrl(`http://127.0.0.1:${ctx.webServer.port}`),
-    injections: ctx.webServer.collectIndexInjections() })
+    injections: webIndexInjections(ctx) })
   auditHostPlugins(ctx)
   const account = ctx.get('deepseekAccount') as PlatformLoginAccount | undefined
   if (account !== undefined && !stopping) {

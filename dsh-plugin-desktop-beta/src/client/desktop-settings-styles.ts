@@ -232,9 +232,31 @@ button.dshDesktopSettingsButton {
   min-width: 0;
   padding: 0 12px;
 }
+.dshDesktopSettingsDataPath {
+  overflow-wrap: anywhere;
+  color: var(--dsw-alias-label-secondary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  line-height: 18px;
+  user-select: text;
+}
+.dshDesktopSettingsRowActions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 8px;
+}
+.dshDesktopSettingsRowActions .dshDesktopSettingsButton {
+  min-width: 0;
+  padding: 0 12px;
+}
 .dshDesktopSettingsButton:hover:not(:disabled),
 button.dshDesktopSettingsButton:hover:not(:disabled) {
   background: var(--dsw-alias-interactive-bg-hover);
+}
+a.dshDesktopSettingsButton,
+a.dshDesktopSettingsButton:hover {
+  color: var(--dsw-alias-label-primary);
+  text-decoration: none;
 }
 .dshDesktopSettingsButtonSecondary,
 button.dshDesktopSettingsButtonSecondary {

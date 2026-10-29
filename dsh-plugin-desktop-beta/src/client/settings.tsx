@@ -13,6 +13,7 @@ import { NextUpdateSettings } from './updates.tsx'
 export function desktopTranslate(language: string): (key: string) => string {
   const copy = language.startsWith('zh') ? zh : en
   return key => {
+    if (key === 'title') return language.startsWith('zh') ? 'DSH Desktop Beta 设置' : 'DSH Desktop Beta settings'
     if (key === 'presentationTitle') return language.startsWith('zh') ? '窗口外观' : 'Window appearance'
     if (key === 'windowMaterialBody') return language.startsWith('zh') ? '设置窗口背景效果，更改后立即生效。' : 'Set the window background effect. Changes apply immediately.'
     if (key === 'sidebarFooterCompat') return language.startsWith('zh') ? '侧边栏底部图标横向排列' : 'Arrange sidebar footer icons in a row'
@@ -68,6 +69,32 @@ function NextBrowserActions({ adapter, state, language }: { adapter: NextSetting
   </>
 }
 
+/**
+ * The data directory in use and how it was chosen: a choice made in the app wins over
+ * `DSH_DESKTOP_NEXT_HOME`, which wins over `~/.dsh`. Changing or backing up never moves data.
+ */
+function NextDataDirectory({ state, language, unavailable, run }: { state: DesktopState; language: string; unavailable: boolean; run(command: DesktopCommand): void }) {
+  const t = (cn: string, en: string): string => language.startsWith('zh') ? cn : en
+  const source = state.dataDirectory?.source
+  const environmentHome = state.dataDirectory?.environmentHome ?? null
+  const label = source === 'desktop' ? t('应用内选择', 'Chosen in app') : source === 'environment' ? 'DSH_DESKTOP_NEXT_HOME' : source === 'default' ? t('默认', 'Default') : undefined
+  const overridden = source === 'desktop' && environmentHome !== null
+  return <div className="dshDesktopSettingsUpdateRow" data-next-data-directory="">
+    <span className="dshDesktopSettingsToggleCopy">
+      <span className="dshDesktopSettingsToggleLabel">{t('数据目录', 'Data directory')}{label && <span className="dshDesktopSettingsBadge" title={t('优先级：应用内选择 > DSH_DESKTOP_NEXT_HOME > 默认目录', 'Precedence: chosen in app > DSH_DESKTOP_NEXT_HOME > default')}>{label}</span>}</span>
+      <code className="dshDesktopSettingsDataPath">{state.home}</code>
+      <p className="dshDesktopSettingsToggleDescription">
+        {overridden && t('应用内选择优先于 DSH_DESKTOP_NEXT_HOME。', 'The directory chosen in the app takes precedence over DSH_DESKTOP_NEXT_HOME. ')}
+        {t('如需重置当前数据目录，请先备份，再到恢复助手中操作。', 'To reset this data directory, back it up first, then use the recovery assistant.')}
+      </p>
+    </span>
+    <span className="dshDesktopSettingsRowActions">
+      <button type="button" className="dshDesktopSettingsButton dshDesktopSettingsButtonSecondary" disabled={unavailable} onClick={() => run({ type: 'change-data-directory' })}>{t('切换', 'Change')}</button>
+      <button type="button" className="dshDesktopSettingsButton dshDesktopSettingsButtonSecondary" disabled={unavailable} onClick={() => run({ type: 'backup-data-directory' })}>{t('备份', 'Back up')}</button>
+    </span>
+  </div>
+}
+
 /** Next-only preferences use the existing Desktop form and switch components. */
 function NextDesktopOptions({ adapter, state, language }: { adapter: NextSettingsAdapter; state: DesktopState; language: string }) {
   const t = (cn: string, en: string): string => language.startsWith('zh') ? cn : en
@@ -99,6 +126,7 @@ function NextDesktopOptions({ adapter, state, language }: { adapter: NextSetting
         {action('restart-onboarding', '设置向导', 'Setup wizard', state.safeMode)}
         {action('open-home', '打开数据目录', 'Open data directory')}{action('open-profile', '打开 Profile 目录', 'Open Profile directory')}{action('open-logs', '打开日志目录', 'Open log directory')}{action('devtools', '开发者工具', 'Developer Tools')}
       </div>
+      <NextDataDirectory state={state} language={language} unavailable={busy || state.busy || state.safeMode} run={command => { void run(() => adapter.command(command)) }} />
       <div className="dshDesktopSettingsMaterialField">
         <span className="dshDesktopSettingsToggleLabel">{t('日志级别', 'Log level')}</span>
         <DesktopSettingsSelect
@@ -111,7 +139,7 @@ function NextDesktopOptions({ adapter, state, language }: { adapter: NextSetting
       </div>
       <DesktopSettingsToggleRow
         label={t('开发者日志', 'Developer logging')}
-        description={t('记录模型请求、工具执行和通信的耗时与结果，不记录聊天正文或工具输入输出。日志保留七天，最多占用 200 MiB。会话事件可按序号与官方 Session Log 对照。', 'Record model requests, tool execution and communication timing and outcomes, without chat bodies or tool inputs and outputs. History is retained for seven days, up to 200 MiB. Match session events to the official Session Log by sequence number.')}
+        description={t('记录模型请求、工具执行和通信的耗时与结果，以及每 30 秒一次的内存使用情况，不记录聊天正文或工具输入输出。日志保留七天，最多占用 200 MiB。会话事件可按序号与官方 Session Log 对照。', 'Record model requests, tool execution and communication timing and outcomes, plus memory usage every 30 seconds, without chat bodies or tool inputs and outputs. History is retained for seven days, up to 200 MiB. Match session events to the official Session Log by sequence number.')}
         checked={state.preferences.developerLogging}
         disabled={state.safeMode}
         onChange={developerLogging => { void savePreference({ developerLogging }) }}
