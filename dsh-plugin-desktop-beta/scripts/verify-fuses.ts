@@ -53,7 +53,8 @@ function runPackagedNode(path: string, args: readonly string[], timeout: number,
 
 async function verifyFinalArtifacts(result: { outDir: string }): Promise<string[]> {
   const paths = ['mac/DSH Desktop Beta.app/Contents/MacOS/DSH Desktop Beta', 'mac-arm64/DSH Desktop Beta.app/Contents/MacOS/DSH Desktop Beta',
-    'mac-universal/DSH Desktop Beta.app/Contents/MacOS/DSH Desktop Beta', 'win-unpacked/DSH Desktop Beta.exe', 'linux-unpacked/dsh-desktop-beta']
+    'mac-universal/DSH Desktop Beta.app/Contents/MacOS/DSH Desktop Beta', 'win-unpacked/DSH Desktop Beta.exe', 'linux-unpacked/dsh-desktop-beta',
+    'linux-arm64-unpacked/dsh-desktop-beta']
   const executables = paths.map(path => join(result.outDir, path)).filter(existsSync)
   if (!executables.length) throw new Error('No packaged Next executable to verify')
   const expectedVersion = expectedNextVersion(desktopRoot)
@@ -100,6 +101,10 @@ async function verifyFinalArtifacts(result: { outDir: string }): Promise<string[
       runPackagedNode(path, [join(desktopRoot, 'scripts', 'packaged-skill-badge-smoke.mjs'), root], 120_000, 'Packaged badge skill smoke failed'),
       // Image attachments and Market icons go through sharp; on Linux the Host's resolver must keep it on the WebAssembly build.
       runPackagedNode(path, [join(desktopRoot, 'scripts', 'packaged-sharp-smoke.mjs'), root], 120_000, 'Packaged sharp smoke failed'),
+      // Linux has no tray terminal; the application executable itself answers `<app> dsh …` (#1568).
+      ...target.platform === 'linux' ? [
+        runPackagedNode(path, [join(desktopRoot, 'scripts', 'packaged-dsh-command-smoke.mjs'), root], 120_000, 'Packaged dsh command smoke failed'),
+      ] : [],
       // The same Electron, in Node mode, starts the real Host from the archive with a private home.
       runPackagedNode(path, ['--expose-internals', join(desktopRoot, 'scripts', 'packaged-host-smoke.mjs'), root], 300_000, 'Packaged Next Host smoke failed'),
     ])
